@@ -157,3 +157,5 @@ Aspiring DevOps / Cloud Engineer
 
 ## 📌 License
 This project is for learning and demonstration purposes.
+
+![CI/CD Pipeline](https://github.com/theamanGupta03/self-healing-devops-pipeline/actions/workflows/ci-cd.yml/badge.svg)
