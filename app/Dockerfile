@@ -1,20 +1,33 @@
-docker # 1️⃣ Base image
-FROM python:3.14-slim
+# ── Stage 1: Builder ──────────────────────────────────────────────
+FROM python:3.12-slim AS builder
 
-# 2️⃣ Set working directory inside container
+WORKDIR /build
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ── Stage 2: Production Image ─────────────────────────────────────
+FROM python:3.12-slim
+
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
 WORKDIR /app
 
-# 3️⃣ Copy dependency file
-COPY requirements.txt .
+COPY --from=builder /install /usr/local
+COPY . .
 
-# 4️⃣ Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN chown -R appuser:appgroup /app
 
-# 5️⃣ Copy application code
-COPY app.py .
+USER appuser
 
-# 6️⃣ Expose port
+ENV FLASK_ENV=production \
+    PORT=5000
+
 EXPOSE 5000
 
-# 7️⃣ Run the application
-CMD ["python", "app.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')" || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "60", "app:app"]
