@@ -1,0 +1,36 @@
+name: Self-Healing CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t self-healing-app ./app
+
+      - name: Run Container
+        run: |
+          docker run -d -p 5000:5000 --name app-container self-healing-app
+
+      - name: Health Check
+        run: |
+          echo "Waiting for app to start..."
+          sleep 15
+          curl -f http://localhost:5000 || exit 1
+
+      - name: Self-Healing (Restart Container)
+        if: failure()
+        run: |
+          echo "Self-healing triggered..."
+          docker logs app-container
+          docker restart app-container
+          sleep 10
+          curl http://localhost:5000 || echo "Still failing after restart"  

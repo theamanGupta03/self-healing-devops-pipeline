@@ -1,0 +1,138 @@
+name: 🚀 Self-Healing CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/self-healing-app
+
+jobs:
+  test:
+    name: 🧪 Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r app/requirements.txt
+          pip install pytest pytest-cov flake8
+
+      - name: Lint
+        run: flake8 app/ --max-line-length=100 --ignore=E501,W503
+
+      - name: Test
+        run: pytest tests/ -v --cov=app --cov-report=xml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  build:
+    name: 🐳 Build & Push Image
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  health-check:
+    name: 🩺 Health Check & Self-Healing
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run container
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker run -d \
+            --name self-healing-app \
+            -p 5000:5000 \
+            -e APP_VERSION=${{ github.sha }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Wait for app to be ready
+        run: |
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
+              echo "✅ App is up!"
+              break
+            fi
+            echo "Attempt $i/15 — waiting..."
+            [ $i -eq 15 ] && docker logs self-healing-app && exit 1
+            sleep 3
+          done
+
+      - name: Run health checks
+        id: healthcheck
+        run: |
+          chmod +x scripts/health_check.sh
+          ./scripts/health_check.sh
+
+      - name: 🔄 Self-Healing
+        if: failure() && steps.healthcheck.conclusion == 'failure'
+        run: |
+          echo "🔄 Restarting container..."
+          docker restart self-healing-app
+          sleep 10
+          ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs self-healing-app || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop self-healing-app || true
+          docker rm self-healing-app || true
