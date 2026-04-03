@@ -143,7 +143,8 @@ docker run -p 5000:5000 self-healing-app
 This project goes beyond basic deployments by focusing on:
 - Automation readiness
 - Health-based validation
-- Production-aligned DevOps workflow
+- Production-aligned DevOps workflows
+
 It demonstrates **DevOps thinking**, not just tool usage.
 
 ---
