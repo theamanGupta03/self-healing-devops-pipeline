@@ -1,18 +1,278 @@
-<div align="center">
 
-# 🔁 Self-Healing DevOps Pipeline
+A **production-grade DevOps system** that containerizes a Python Flask app, automates the entire CI/CD lifecycle, validates deployments with a deep health check, self-heals on failure, and provides real-time observability — all triggered by a single `git push`.
 
-### A production-grade CI/CD system that automatically detects failures, heals itself, and delivers observability — built from scratch.
+---
 
-![CI/CD Pipeline](https://github.com/theamanGupta03/self-healing-devops-pipeline/actions/workflows/ci-cd.yml/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED?logo=docker&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?logo=githubactions&logoColor=white)
-![Prometheus](https://img.shields.io/badge/Prometheus-monitoring-E6522C?logo=prometheus&logoColor=white)
-![Grafana](https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white)
+## 🚩 The Problem
 
-<br/>
+Most pipelines just build and deploy. When something breaks in production:
 
-> **"Don't just deploy. Deploy, validate, monitor, and recover — automatically."**
+❌ Someone gets paged  
+❌ Someone logs in manually  
+❌ Someone restarts the container  
+❌ Nobody knows what the app was doing before it broke  
 
-</div>
+**This project eliminates that entire chain.**
+
+---
+
+## ✅ The Solution
+
+| Problem | What This Project Does |
+|---|---|
+| Manual deployments are error-prone | Fully automated 3-job GitHub Actions pipeline |
+| Works on my machine syndrome | Multi-stage Docker build with pinned dependencies |
+| No validation after deployment | Deep health check validates every endpoint and JSON response |
+| Failures need manual recovery | Container auto-restarts and re-validates without human input |
+| No visibility into production | Prometheus + Grafana live metrics — request rate, latency, uptime, CPU |
+
+---
+
+## ⚙️ How The Pipeline Works
+
+Every `git push` to `main` triggers this sequence — fully automatic, no human steps:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      GitHub Actions                             │
+│                                                                 │
+│   📦 Push Code                                                  │
+│        │                                                        │
+│        ▼                                                        │
+│   ┌─────────────────────────────┐                               │
+│   │  🧪  Stage 1 — Lint & Test  │                               │
+│   │  • flake8 code style check  │                               │
+│   │  • pytest — 6 tests         │                               │
+│   │  • coverage report upload   │                               │
+│   │  ❌ Fails? Pipeline stops.  │                               │
+│   └──────────────┬──────────────┘                               │
+│                  │ ✅ Pass                                       │
+│                  ▼                                               │
+│   ┌──────────────────────────────────┐                          │
+│   │  🐳  Stage 2 — Build & Push      │                          │
+│   │  • Multi-stage Docker build      │                          │
+│   │  • Push to GHCR (3 image tags)   │                          │
+│   │  • Layer caching — 60s → 10s     │                          │
+│   └──────────────┬───────────────────┘                          │
+│                  │ ✅ Pass                                       │
+│                  ▼                                               │
+│   ┌──────────────────────────────────────────────┐              │
+│   │  🩺  Stage 3 — Health Check + Self-Healing   │              │
+│   │  • Pull image from GHCR                      │              │
+│   │  • Run container                             │              │
+│   │  • Validate all endpoints + JSON responses   │              │
+│   │  • ❌ Fails? → Auto-restart → Retry once     │              │
+│   │  • Still fails? Pipeline fails with logs     │              │
+│   └──────────────────────────────────────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔄 Self-Healing Logic
+
+When the health check fails, this runs automatically:
+
+```yaml
+- name: 🔄 Self-Healing
+  if: failure() && steps.healthcheck.conclusion == 'failure'
+  run: |
+    echo "Restarting container..."
+    docker restart self-healing-app
+    sleep 10
+    ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
+```
+
+The script validates not just the HTTP status code, but also the JSON response body on every endpoint:
+
+```
+✅ PASS — Endpoint /        → status=running
+✅ PASS — Endpoint /health  → status=UP
+✅ PASS — Endpoint /info    → version=abc1234
+```
+
+---
+
+## 📊 Observability Stack
+
+Four containers work together to give complete visibility:
+
+```
+┌──────────────┐     scrapes every 15s    ┌─────────────────┐
+│  Flask App   │ ──────────────────────►  │   Prometheus    │
+│  :5000       │      /metrics            │   :9090         │
+│              │                          │  (time-series)  │
+└──────────────┘                          └────────┬────────┘
+                                                   │
+┌──────────────┐     scrapes every 15s             │ data source
+│  cAdvisor    │ ──────────────────────►           │
+│  :8080       │   container CPU/memory  ┌────────▼────────┐
+│ (Docker stats│                         │    Grafana      │
+│  collector)  │                         │    :3000        │
+└──────────────┘                         │  (dashboards)   │
+                                         └─────────────────┘
+```
+
+### 📈 Live Grafana Dashboard Panels
+
+| Panel | What It Shows |
+|---|---|
+| 🟢 HTTP Request Rate | Requests per second per endpoint and status code |
+| 🔵 Request Latency p95 | 95th percentile response time — spikes mean slowdowns |
+| 🟡 App Uptime | Seconds since last start — resets to 0 if the app crashes |
+| 🟠 Container CPU | Docker CPU usage over time — spikes mean heavy processing |
+
+---
+
+## 📁 Project Structure
+
+```
+self-healing-devops-pipeline/
+│
+├── 📂 .github/workflows/
+│   └── ci-cd.yml              ← The entire pipeline in one file
+│
+├── 📂 app/
+│   ├── app.py                 ← Flask app: /, /health, /info, /metrics
+│   ├── requirements.txt       ← Pinned versions — no surprise updates
+│   └── Dockerfile             ← Multi-stage build, non-root user
+│
+├── 📂 tests/
+│   └── test_app.py            ← 6 tests: status codes + JSON structure
+│
+├── 📂 scripts/
+│   └── health_check.sh        ← Deep validator + self-healing trigger
+│
+├── 📂 monitoring/
+│   ├── prometheus.yml         ← Scrape config: Flask + cAdvisor
+│   └── grafana/provisioning/  ← Auto-configures datasource + dashboard
+│
+├── docker-compose.yml         ← Runs all 4 containers with one command
+└── README.md
+```
+
+---
+
+## 🌐 API Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | GET | App name, version, status, timestamp |
+| `/health` | GET | Health status + uptime — used by the pipeline |
+| `/info` | GET | Environment, hostname, version |
+| `/metrics` | GET | Prometheus metrics — scraped every 15 seconds |
+
+**`/health` response:**
+```json
+{
+  "status": "UP",
+  "message": "Application is healthy",
+  "version": "abc1234",
+  "uptime_seconds": 102039,
+  "timestamp": "2026-04-04T08:45:25+00:00"
+}
+```
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/theamanGupta03/self-healing-devops-pipeline.git
+cd self-healing-devops-pipeline
+
+# 2. Start all 4 containers
+docker-compose up --build -d
+
+# 3. Verify everything is healthy
+docker-compose ps
+
+# 4. Hit the health endpoint
+curl http://localhost:5000/health
+```
+
+**Open in browser:**
+
+| Service | URL | Credentials |
+|---|---|---|
+| Flask App | http://localhost:5000 | — |
+| Prometheus | http://localhost:9090 | — |
+| Grafana | http://localhost:3000 | admin / admin123 |
+| cAdvisor | http://localhost:8080 | — |
+
+---
+
+## 🧪 Run Tests Locally
+
+```bash
+pip install -r app/requirements.txt pytest pytest-cov flake8
+pytest tests/ -v --cov=app
+```
+
+```
+tests/test_app.py::test_home_returns_200              PASSED
+tests/test_app.py::test_home_json_structure           PASSED
+tests/test_app.py::test_health_returns_200            PASSED
+tests/test_app.py::test_health_json_structure         PASSED
+tests/test_app.py::test_info_endpoint                 PASSED
+tests/test_app.py::test_nonexistent_route_returns_404 PASSED
+
+6 passed in 0.08s ✅
+```
+
+---
+
+## 🔑 Key Engineering Decisions
+
+**🐳 Multi-stage Docker build**
+Dependencies install in a builder stage. Only the compiled packages copy into the final image — no pip, no build tools, no cache in production. Smaller image, smaller attack surface.
+
+**👤 Non-root container user**
+The app runs as `appuser`, not root. If the container is ever compromised, the attacker cannot escalate to root-level access.
+
+**📌 Pinned dependency versions**
+`flask==3.0.3` not `flask>=3`. Every build uses the exact same packages. No surprises from upstream library updates.
+
+**⚡ Gunicorn over Flask dev server**
+Flask's built-in server is single-threaded. Gunicorn runs with 2 worker processes and a 60-second timeout — production-ready.
+
+**🔖 Git SHA as APP_VERSION**
+The pipeline injects the exact commit hash as `APP_VERSION` at runtime. Every running container knows exactly what code it is running.
+
+**⚡ GitHub Actions layer caching**
+`cache-from: type=gha` reuses unchanged Docker layers. If only `app.py` changed, dependencies don't reinstall — builds go from 60s to 10s.
+
+---
+
+## 🗺️ Roadmap
+
+- [x] ✅ Phase 1 — GitHub Actions CI/CD pipeline with self-healing
+- [x] ✅ Phase 2 — Prometheus and Grafana observability stack
+- [x] ✅ Phase 3 — Deployed to AWS EC2 — Live at `13.220.176.117`
+
+
+---
+
+## 🧰 Tech Stack
+
+| Category | Technologies |
+|---|---|
+| Application | Python 3.12 · Flask 3.0.3 · Gunicorn |
+| Containerization | Docker (multi-stage) · Docker Compose |
+| CI/CD | GitHub Actions · GHCR |
+| Testing | pytest · flake8 · pytest-cov |
+| Monitoring | Prometheus · Grafana · cAdvisor · prometheus-client |
+| Scripting | Bash · curl |
+| Version Control | Git · GitHub |
+
+---
+
+## 👨‍💻 Author
+
+**Aman Gupta** — Aspiring DevOps / Cloud Engineer
+
+⭐ **If this project helped you, give it a star!** ⭐
+
+*Built with real DevOps practices — not just tutorials.*
+
