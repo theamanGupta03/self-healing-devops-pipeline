@@ -1,6 +1,6 @@
-# Title
-Self-healing Devops Pipleine.
-#
+
+# Self-healing Devops Pipleine.
+
 A **production-grade DevOps system** that containerizes a Python Flask app, automates the entire CI/CD lifecycle, validates deployments with a deep health check, self-heals on failure, and provides real-time observability — all triggered by a single `git push`.
 
 ---
