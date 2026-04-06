@@ -34,14 +34,16 @@ Most pipelines just build and deploy. When something breaks in production:
 Every `git push` to `main` triggers this sequence — fully automatic, no human steps:
 
 ```
+## 🏗️ How It Works
+```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      GitHub Actions                             │
+│                        GitHub Actions                           │
 │                                                                 │
 │   📦 Push Code                                                  │
 │        │                                                        │
 │        ▼                                                        │
 │   ┌─────────────────────────────┐                               │
-│   │  🧪  Stage 1 — Lint & Test  │                               │
+│   │  🧪 Stage 1 — Lint & Test   │                               │
 │   │  • flake8 code style check  │                               │
 │   │  • pytest — 6 tests         │                               │
 │   │  • coverage report upload   │                               │
@@ -50,7 +52,7 @@ Every `git push` to `main` triggers this sequence — fully automatic, no human 
 │                  │ ✅ Pass                                       │
 │                  ▼                                               │
 │   ┌──────────────────────────────────┐                          │
-│   │  🐳  Stage 2 — Build & Push      │                          │
+│   │  🐳 Stage 2 — Build & Push       │                          │
 │   │  • Multi-stage Docker build      │                          │
 │   │  • Push to GHCR (3 image tags)   │                          │
 │   │  • Layer caching — 60s → 10s     │                          │
@@ -58,14 +60,33 @@ Every `git push` to `main` triggers this sequence — fully automatic, no human 
 │                  │ ✅ Pass                                       │
 │                  ▼                                               │
 │   ┌──────────────────────────────────────────────┐              │
-│   │  🩺  Stage 3 — Health Check + Self-Healing   │              │
+│   │  🩺 Stage 3 — Health Check + Self-Healing    │              │
 │   │  • Pull image from GHCR                      │              │
 │   │  • Run container                             │              │
 │   │  • Validate all endpoints + JSON responses   │              │
 │   │  • ❌ Fails? → Auto-restart → Retry once     │              │
 │   │  • Still fails? Pipeline fails with logs     │              │
+│   └──────────────┬───────────────────────────────┘              │
+│                  │ ✅ Always runs                                │
+│                  ▼                                               │
+│   ┌──────────────────────────────────────────────┐              │
+│   │  📣 Stage 4 — Slack Notification             │              │
+│   │  • ✅ Pipeline PASSED → Green message        │              │
+│   │  • ❌ Pipeline FAILED → Red alert            │              │
+│   │  • Includes commit · branch · run link       │              │
 │   └──────────────────────────────────────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
+
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│         Observability Stack             │
+│                                         │
+│  Flask /metrics ──► Prometheus          │
+│  Docker stats   ──► cAdvisor            │
+│  Prometheus     ──► Grafana Dashboards  │
+└─────────────────────────────────────────┘
+```
 ```
 
 ---
