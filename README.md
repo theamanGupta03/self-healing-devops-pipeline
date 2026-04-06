@@ -323,8 +323,6 @@ test_nonexistent_route_returns_404 PASSED
 - [x] ✅ Phase 2 — Prometheus and Grafana observability stack
 - [x] ✅ Phase 3 — Deployed to AWS EC2 — Live at `13.51.238.154`
 - [x] ✅ Phase 4 — Slack alerts for all pipeline states + recovery notifications
-- [ ] 🔲 Phase 5 — Trivy Docker image security scanning
-- [ ] 🔲 Phase 6 — Staging and production environments with approval gate
 
 ---
 
