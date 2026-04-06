@@ -87,11 +87,32 @@ When the health check fails, this runs automatically:
 
 The script validates not just the HTTP status code, but also the JSON response body on every endpoint:
 
+## 📣 Slack Notification Logic
 ```
+- name: Notify Success
+  if: all jobs passed
+  run: |
+    curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+    --data '{ "text": "✅ Pipeline PASSED", ... }'
+
+- name: Notify Failure  
+  if: any job failed
+  run: |
+    curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+    --data '{ "text": "❌ Pipeline FAILED", ... }'
 ✅ PASS — Endpoint /        → status=running
 ✅ PASS — Endpoint /health  → status=UP
 ✅ PASS — Endpoint /info    → version=abc1234
+
 ```
+# What the Slack message includes:
+
+✅ or ❌ status
+Repository name
+Branch
+Commit SHA
+Who triggered it
+Direct link to the run
 
 ---
 
@@ -245,6 +266,9 @@ The pipeline injects the exact commit hash as `APP_VERSION` at runtime. Every ru
 **⚡ GitHub Actions layer caching**
 `cache-from: type=gha` reuses unchanged Docker layers. If only `app.py` changed, dependencies don't reinstall — builds go from 60s to 10s.
 
+**⚡ Slack webhook over email**
+instant, structured, actionable. Includes the run link so you can jump directly to the failed job.
+
 ---
 
 ## 🗺️ Roadmap
@@ -252,24 +276,30 @@ The pipeline injects the exact commit hash as `APP_VERSION` at runtime. Every ru
 - [x] ✅ Phase 1 — GitHub Actions CI/CD pipeline with self-healing
 - [x] ✅ Phase 2 — Prometheus and Grafana observability stack
 - [x] ✅ Phase 3 — Deployed to AWS EC2 — Live at `13.220.176.117`
+- [x] ✅ Phase 4 — Slack alerts on every pipeline run
 
 
 ---
 
 ## 🧰 Tech Stack
 
-| Category | Technologies |
-|---|---|
-| Application | Python 3.12 · Flask 3.0.3 · Gunicorn |
-| Containerization | Docker (multi-stage) · Docker Compose |
-| CI/CD | GitHub Actions · GHCR |
-| Testing | pytest · flake8 · pytest-cov |
-| Monitoring | Prometheus · Grafana · cAdvisor · prometheus-client |
-| Scripting | Bash · curl |
-| Version Control | Git · GitHub |
-| Cloud | AWS EC2
-
----
+| Category | Technology | Purpose |
+|---|---|---|
+| Language | Python 3.12 | Application development |
+| Web Framework | Flask 3.0.3 | REST API endpoints |
+| WSGI Server | Gunicorn 22.0.0 | Production HTTP server |
+| Containerization | Docker multi-stage | Portable, secure packaging |
+| CI/CD | GitHub Actions | 4-job automated pipeline |
+| Registry | GHCR | Docker image hosting with 3 tags |
+| Testing | pytest + flake8 | Unit tests + linting |
+| Metrics | prometheus-client | Expose app metrics at /metrics |
+| Monitoring | Prometheus | Scrape + store time-series data |
+| Visualization | Grafana | Live dashboards |
+| Container Stats | cAdvisor | CPU, memory, network metrics |
+| Self-Healing | Bash + curl | Health validation + auto-restart |
+| Alerting | Slack Webhooks | Real-time pipeline notifications |
+| Cloud | AWS EC2 | Live deployment |
+| Orchestration | Docker Compose | Multi-container local stack |
 
 ## 👨‍💻 Author
 
