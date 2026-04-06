@@ -16,24 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r app/requirements.txt
           pip install pytest pytest-cov flake8
-
       - name: Lint
         run: flake8 app/ --max-line-length=100 --ignore=E501,W503
-
       - name: Test
         run: pytest tests/ -v --cov=app --cov-report=xml
-
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -46,18 +41,14 @@ jobs:
     permissions:
       contents: read
       packages: write
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -67,7 +58,6 @@ jobs:
             type=sha,prefix=sha-
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -82,16 +72,13 @@ jobs:
     name: 🩺 Health Check & Self-Healing
     runs-on: ubuntu-latest
     needs: build
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Run container
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -100,7 +87,6 @@ jobs:
             -p 5000:5000 \
             -e APP_VERSION=${{ github.sha }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-
       - name: Wait for app to be ready
         run: |
           for i in $(seq 1 15); do
@@ -112,13 +98,11 @@ jobs:
             [ $i -eq 15 ] && docker logs self-healing-app && exit 1
             sleep 3
           done
-
       - name: Run health checks
         id: healthcheck
         run: |
           chmod +x scripts/health_check.sh
           ./scripts/health_check.sh
-
       - name: 🔄 Self-Healing
         if: failure() && steps.healthcheck.conclusion == 'failure'
         run: |
@@ -126,13 +110,55 @@ jobs:
           docker restart self-healing-app
           sleep 10
           ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
-
       - name: Container logs
         if: always()
         run: docker logs self-healing-app || true
-
       - name: Cleanup
         if: always()
         run: |
           docker stop self-healing-app || true
           docker rm self-healing-app || true
+
+  notify:
+    name: 📣 Slack Notification
+    runs-on: ubuntu-latest
+    needs: [test, build, health-check]
+    if: always()
+    steps:
+      - name: Notify Success
+        if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'success' }}
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data '{
+            "text": "✅ *Pipeline PASSED*",
+            "attachments": [{
+              "color": "#36a64f",
+              "fields": [
+                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
+                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }'
+
+      - name: Notify Failure
+        if: ${{ needs.test.result == 'failure' || needs.build.result == 'failure' || needs.health-check.result == 'failure' }}
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data '{
+            "text": "❌ *Pipeline FAILED*",
+            "attachments": [{
+              "color": "#ff0000",
+              "fields": [
+                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
+                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }'
