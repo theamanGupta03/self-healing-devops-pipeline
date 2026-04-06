@@ -105,11 +105,31 @@ jobs:
           ./scripts/health_check.sh
       - name: 🔄 Self-Healing
         if: failure() && steps.healthcheck.conclusion == 'failure'
+        id: selfhealing
         run: |
           echo "🔄 Restarting container..."
           docker restart self-healing-app
           sleep 10
           ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
+      - name: Notify Slack on Self-Healing Recovery
+        if: steps.selfhealing.conclusion == 'success'
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data '{
+            "text": "♻️ *Self-Healing Succeeded — App Recovered!*",
+            "attachments": [{
+              "color": "#36a64f",
+              "fields": [
+                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
+                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Action Taken", "value": "App failed initial health check but recovered automatically after container restart.", "short": false},
+                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }'
       - name: Container logs
         if: always()
         run: docker logs self-healing-app || true
@@ -125,6 +145,8 @@ jobs:
     needs: [test, build, health-check]
     if: always()
     steps:
+
+      # ✅ Full Pipeline Success
       - name: Notify Success
         if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'success' }}
         run: |
@@ -144,20 +166,64 @@ jobs:
             }]
           }'
 
-      - name: Notify Failure
-        if: ${{ needs.test.result == 'failure' || needs.build.result == 'failure' || needs.health-check.result == 'failure' }}
+      # ❌ Tests / Lint Failed
+      - name: Notify Test Failure
+        if: ${{ needs.test.result == 'failure' }}
         run: |
           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
           -H 'Content-type: application/json' \
           --data '{
-            "text": "❌ *Pipeline FAILED*",
+            "text": "❌ *Tests Failed — Pipeline Stopped*",
             "attachments": [{
               "color": "#ff0000",
               "fields": [
-                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+                {"title": "Failed Job", "value": "🧪 Lint & Test", "short": true},
                 {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
                 {"title": "Commit", "value": "${{ github.sha }}", "short": true},
                 {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Reason", "value": "Lint or pytest checks failed. Check logs for details.", "short": false},
+                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }'
+
+      # 🐳 Docker Build / Push Failed
+      - name: Notify Build Failure
+        if: ${{ needs.test.result == 'success' && needs.build.result == 'failure' }}
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data '{
+            "text": "🐳 *Docker Build/Push Failed*",
+            "attachments": [{
+              "color": "#ff6600",
+              "fields": [
+                {"title": "Failed Job", "value": "🐳 Build & Push Image", "short": true},
+                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
+                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Reason", "value": "Docker image build or push to GHCR failed.", "short": false},
+                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }'
+
+      # 🚨 Self-Healing Failed — needs manual fix
+      - name: Notify Self-Healing Failure
+        if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'failure' }}
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data '{
+            "text": "🚨 *Self-Healing Failed — Manual Intervention Required!*",
+            "attachments": [{
+              "color": "#8b0000",
+              "fields": [
+                {"title": "Failed Job", "value": "🩺 Health Check & Self-Healing", "short": true},
+                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
+                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Reason", "value": "App failed health checks and could not auto-recover after container restart. Manual fix needed.", "short": false},
                 {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
               ]
             }]
