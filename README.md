@@ -1,7 +1,20 @@
+# 🔁 Self-Healing DevOps Pipeline
 
-# Self-Healing Devops Pipleine.
+> 💬 **"Don't just deploy. Deploy, validate, monitor, recover, and notify — automatically."**
 
-A **production-grade DevOps system** that containerizes a Python Flask app, automates the entire CI/CD lifecycle, validates deployments with a deep health check, self-heals on failure, and provides real-time observability — all triggered by a single `git push`.
+A **production-grade DevOps system** that containerizes a Python Flask app, automates the entire CI/CD lifecycle, validates deployments with a deep health check, self-heals on failure, sends real-time Slack notifications, and provides live observability on AWS EC2 — all triggered by a single `git push`.
+
+---
+
+## 🌍 Live Demo — Running on AWS EC2
+
+| Service | Public URL |
+|---|---|
+| 🐍 Flask App | http://13.51.238.154:5000 |
+| ❤️ Health Check | http://13.51.238.154:5000/health |
+| 📊 Prometheus | http://13.51.238.154:9090 |
+| 📈 Grafana | http://13.51.238.154:3000 |
+| 📦 cAdvisor | http://13.51.238.154:8080 |
 
 ---
 
@@ -13,6 +26,7 @@ Most pipelines just build and deploy. When something breaks in production:
 ❌ Someone logs in manually  
 ❌ Someone restarts the container  
 ❌ Nobody knows what the app was doing before it broke  
+❌ Nobody gets notified until it's too late  
 
 **This project eliminates that entire chain.**
 
@@ -22,28 +36,28 @@ Most pipelines just build and deploy. When something breaks in production:
 
 | Problem | What This Project Does |
 |---|---|
-| Manual deployments are error-prone | Fully automated 4-job GitHub Actions pipeline |
-| "Works on my machine" syndrome | Multi-stage Docker build with pinned dependencies |
-| No validation after deployment | Deep health check — validates HTTP status + JSON on every endpoint |
-| Failures need manual recovery | Self-healing — container auto-restarts and re-validates automatically |
-| No visibility into production | Prometheus + Grafana — request rate, latency, uptime, CPU live |
-| Nobody knows when pipeline fails | Slack alerts — commit, branch, run link sent instantly |
+| Manual deployments are error-prone | Fully automated 3-job GitHub Actions pipeline |
+| Works on my machine syndrome | Multi-stage Docker build with pinned dependencies |
+| No validation after deployment | Deep health check validates every endpoint and JSON response |
+| Failures need manual recovery | Container auto-restarts and re-validates without human input |
+| No visibility into production | Prometheus + Grafana live metrics on AWS EC2 |
+| Nobody knows when it breaks | Slack notifications for every pipeline state |
+
+---
 
 ## ⚙️ How The Pipeline Works
 
 Every `git push` to `main` triggers this sequence — fully automatic, no human steps:
 
 ```
-## 🏗️ How It Works
-```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        GitHub Actions                           │
+│                      GitHub Actions                             │
 │                                                                 │
 │   📦 Push Code                                                  │
 │        │                                                        │
 │        ▼                                                        │
 │   ┌─────────────────────────────┐                               │
-│   │  🧪 Stage 1 — Lint & Test   │                               │
+│   │  🧪  Stage 1 — Lint & Test  │                               │
 │   │  • flake8 code style check  │                               │
 │   │  • pytest — 6 tests         │                               │
 │   │  • coverage report upload   │                               │
@@ -52,41 +66,31 @@ Every `git push` to `main` triggers this sequence — fully automatic, no human 
 │                  │ ✅ Pass                                       │
 │                  ▼                                               │
 │   ┌──────────────────────────────────┐                          │
-│   │  🐳 Stage 2 — Build & Push       │                          │
+│   │  🐳  Stage 2 — Build & Push      │                          │
 │   │  • Multi-stage Docker build      │                          │
 │   │  • Push to GHCR (3 image tags)   │                          │
-│   │  • Layer caching — 60s → 10s     │                          │
+│   │  • Layer caching — 60s to 10s    │                          │
 │   └──────────────┬───────────────────┘                          │
 │                  │ ✅ Pass                                       │
 │                  ▼                                               │
 │   ┌──────────────────────────────────────────────┐              │
-│   │  🩺 Stage 3 — Health Check + Self-Healing    │              │
-│   │  • Pull image from GHCR                      │              │
-│   │  • Run container                             │              │
-│   │  • Validate all endpoints + JSON responses   │              │
-│   │  • ❌ Fails? → Auto-restart → Retry once     │              │
-│   │  • Still fails? Pipeline fails with logs     │              │
+│   │  🩺  Stage 3 — Health Check + Self-Healing   │              │
+│   │  • Pull image → Run container                │              │
+│   │  • Validate all endpoints + JSON             │              │
+│   │  • ❌ Fails? → Restart → Retry               │              │
+│   │  • ♻️ Recovered? → Slack notify              │              │
+│   │  • 🚨 Still failing? → Slack escalate        │              │
 │   └──────────────┬───────────────────────────────┘              │
-│                  │ ✅ Always runs                                │
+│                  │ always                                        │
 │                  ▼                                               │
 │   ┌──────────────────────────────────────────────┐              │
-│   │  📣 Stage 4 — Slack Notification             │              │
-│   │  • ✅ Pipeline PASSED → Green message        │              │
-│   │  • ❌ Pipeline FAILED → Red alert            │              │
-│   │  • Includes commit · branch · run link       │              │
+│   │  📣  Stage 4 — Slack Notification            │              │
+│   │  • ✅ All passed → green notification        │              │
+│   │  • ❌ Tests failed → red notification        │              │
+│   │  • 🐳 Build failed → orange notification     │              │
+│   │  • 🚨 Self-healing failed → dark red alert   │              │
 │   └──────────────────────────────────────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
-
-         │
-         ▼
-┌─────────────────────────────────────────┐
-│         Observability Stack             │
-│                                         │
-│  Flask /metrics ──► Prometheus          │
-│  Docker stats   ──► cAdvisor            │
-│  Prometheus     ──► Grafana Dashboards  │
-└─────────────────────────────────────────┘
-```
 ```
 
 ---
@@ -98,6 +102,7 @@ When the health check fails, this runs automatically:
 ```yaml
 - name: 🔄 Self-Healing
   if: failure() && steps.healthcheck.conclusion == 'failure'
+  id: selfhealing
   run: |
     echo "Restarting container..."
     docker restart self-healing-app
@@ -105,34 +110,50 @@ When the health check fails, this runs automatically:
     ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
 ```
 
-The script validates not just the HTTP status code, but also the JSON response body on every endpoint:
+The script validates not just the HTTP status code, but also the JSON response body:
 
-## 📣 Slack Notification Logic
 ```
-- name: Notify Success
-  if: all jobs passed
-  run: |
-    curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-    --data '{ "text": "✅ Pipeline PASSED", ... }'
-
-- name: Notify Failure  
-  if: any job failed
-  run: |
-    curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-    --data '{ "text": "❌ Pipeline FAILED", ... }'
 ✅ PASS — Endpoint /        → status=running
 ✅ PASS — Endpoint /health  → status=UP
 ✅ PASS — Endpoint /info    → version=abc1234
-
 ```
-# What the Slack message includes:
 
-✅ or ❌ status
-Repository name
-Branch
-Commit SHA
-Who triggered it
-Direct link to the run
+---
+
+## 📣 Slack Notifications
+
+5 targeted notifications — each fires for a specific scenario:
+
+| Emoji | Trigger | Color |
+|---|---|---|
+| ✅ | All jobs pass | Green |
+| ❌ | Tests or lint fail | Red |
+| 🐳 | Docker build/push fails | Orange |
+| ♻️ | Self-healing recovers the app | Green |
+| 🚨 | Self-healing fails — manual fix needed | Dark Red |
+
+**Example failure message in Slack:**
+```
+🚨 Self-Healing Failed — Manual Intervention Required!
+
+Failed Job   → 🩺 Health Check & Self-Healing
+Branch       → main
+Commit       → abc1234
+Triggered by → theamanGupta03
+Reason       → App failed health checks and could not auto-recover
+Run          → https://github.com/.../actions/runs/...
+```
+
+**Example recovery message:**
+```
+♻️ Self-Healing Succeeded — App Recovered!
+
+Repository   → theamanGupta03/self-healing-devops-pipeline
+Branch       → main
+Action Taken → App failed initial health check but recovered
+               automatically after container restart
+Run          → https://github.com/.../actions/runs/...
+```
 
 ---
 
@@ -144,16 +165,13 @@ Four containers work together to give complete visibility:
 ┌──────────────┐     scrapes every 15s    ┌─────────────────┐
 │  Flask App   │ ──────────────────────►  │   Prometheus    │
 │  :5000       │      /metrics            │   :9090         │
-│              │                          │  (time-series)  │
 └──────────────┘                          └────────┬────────┘
-                                                   │
-┌──────────────┐     scrapes every 15s             │ data source
-│  cAdvisor    │ ──────────────────────►           │
-│  :8080       │   container CPU/memory  ┌────────▼────────┐
-│ (Docker stats│                         │    Grafana      │
-│  collector)  │                         │    :3000        │
-└──────────────┘                         │  (dashboards)   │
-                                         └─────────────────┘
+                                                   │ data source
+┌──────────────┐     scrapes every 15s             │
+│  cAdvisor    │ ──────────────────────►  ┌────────▼────────┐
+│  :8080       │   container CPU/memory   │    Grafana      │
+└──────────────┘                          │    :3000        │
+                                          └─────────────────┘
 ```
 
 ### 📈 Live Grafana Dashboard Panels
@@ -161,9 +179,9 @@ Four containers work together to give complete visibility:
 | Panel | What It Shows |
 |---|---|
 | 🟢 HTTP Request Rate | Requests per second per endpoint and status code |
-| 🔵 Request Latency p95 | 95th percentile response time — spikes mean slowdowns |
-| 🟡 App Uptime | Seconds since last start — resets to 0 if the app crashes |
-| 🟠 Container CPU | Docker CPU usage over time — spikes mean heavy processing |
+| 🔵 Request Latency p95 | 95th percentile response time |
+| 🟡 App Uptime | Seconds since last start — resets to 0 if app crashes |
+| 🟠 Container CPU | Docker CPU usage over time |
 
 ---
 
@@ -173,11 +191,11 @@ Four containers work together to give complete visibility:
 self-healing-devops-pipeline/
 │
 ├── 📂 .github/workflows/
-│   └── ci-cd.yml              ← The entire pipeline in one file
+│   └── ci-cd.yml              ← 4-job pipeline with self-healing + Slack
 │
 ├── 📂 app/
-│   ├── app.py                 ← Flask app: /, /health, /info, /metrics
-│   ├── requirements.txt       ← Pinned versions — no surprise updates
+│   ├── app.py                 ← Flask: /, /health, /info, /metrics
+│   ├── requirements.txt       ← Pinned versions
 │   └── Dockerfile             ← Multi-stage build, non-root user
 │
 ├── 📂 tests/
@@ -201,7 +219,7 @@ self-healing-devops-pipeline/
 | Endpoint | Method | Description |
 |---|---|---|
 | `/` | GET | App name, version, status, timestamp |
-| `/health` | GET | Health status + uptime — used by the pipeline |
+| `/health` | GET | Health status + uptime — used by pipeline |
 | `/info` | GET | Environment, hostname, version |
 | `/metrics` | GET | Prometheus metrics — scraped every 15 seconds |
 
@@ -211,8 +229,8 @@ self-healing-devops-pipeline/
   "status": "UP",
   "message": "Application is healthy",
   "version": "abc1234",
-  "uptime_seconds": 102039,
-  "timestamp": "2026-04-04T08:45:25+00:00"
+  "uptime_seconds": 946,
+  "timestamp": "2026-04-06T02:38:09+00:00"
 }
 ```
 
@@ -246,6 +264,21 @@ curl http://localhost:5000/health
 
 ---
 
+## 🔐 GitHub Secrets Required
+
+| Secret | Description |
+|---|---|
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL for notifications |
+| `GITHUB_TOKEN` | Auto-provided by GitHub Actions for GHCR access |
+
+**Setting up Slack Webhook:**
+1. Go to your Slack workspace → Apps → Incoming Webhooks
+2. Click Add to channel → select your channel
+3. Copy the webhook URL
+4. GitHub repo → Settings → Secrets and variables → Actions → New secret
+
+---
+
 ## 🧪 Run Tests Locally
 
 ```bash
@@ -254,12 +287,12 @@ pytest tests/ -v --cov=app
 ```
 
 ```
-tests/test_app.py::test_home_returns_200              PASSED
-tests/test_app.py::test_home_json_structure           PASSED
-tests/test_app.py::test_health_returns_200            PASSED
-tests/test_app.py::test_health_json_structure         PASSED
-tests/test_app.py::test_info_endpoint                 PASSED
-tests/test_app.py::test_nonexistent_route_returns_404 PASSED
+test_home_returns_200              PASSED
+test_home_json_structure           PASSED
+test_health_returns_200            PASSED
+test_health_json_structure         PASSED
+test_info_endpoint                 PASSED
+test_nonexistent_route_returns_404 PASSED
 
 6 passed in 0.08s ✅
 ```
@@ -268,26 +301,19 @@ tests/test_app.py::test_nonexistent_route_returns_404 PASSED
 
 ## 🔑 Key Engineering Decisions
 
-**🐳 Multi-stage Docker build**
-Dependencies install in a builder stage. Only the compiled packages copy into the final image — no pip, no build tools, no cache in production. Smaller image, smaller attack surface.
+**🐳 Multi-stage Docker build** — No pip or build tools in the final image. Smaller, more secure.
 
-**👤 Non-root container user**
-The app runs as `appuser`, not root. If the container is ever compromised, the attacker cannot escalate to root-level access.
+**👤 Non-root container user** — App runs as `appuser`. No root-level damage if compromised.
 
-**📌 Pinned dependency versions**
-`flask==3.0.3` not `flask>=3`. Every build uses the exact same packages. No surprises from upstream library updates.
+**📌 Pinned dependency versions** — `flask==3.0.3` not `flask>=3`. Same environment every build.
 
-**⚡ Gunicorn over Flask dev server**
-Flask's built-in server is single-threaded. Gunicorn runs with 2 worker processes and a 60-second timeout — production-ready.
+**⚡ Gunicorn over Flask dev server** — 2 workers, 60s timeout, production-ready.
 
-**🔖 Git SHA as APP_VERSION**
-The pipeline injects the exact commit hash as `APP_VERSION` at runtime. Every running container knows exactly what code it is running.
+**🔖 Git SHA as APP_VERSION** — Every container knows exactly what code it's running.
 
-**⚡ GitHub Actions layer caching**
-`cache-from: type=gha` reuses unchanged Docker layers. If only `app.py` changed, dependencies don't reinstall — builds go from 60s to 10s.
+**⚡ GitHub Actions layer caching** — Unchanged Docker layers reused. 60s → 10s builds.
 
-**⚡ Slack webhook over email**
-instant, structured, actionable. Includes the run link so you can jump directly to the failed job.
+**📣 Targeted Slack notifications** — Each failure scenario has its own message and color. No generic alerts.
 
 ---
 
@@ -295,35 +321,35 @@ instant, structured, actionable. Includes the run link so you can jump directly 
 
 - [x] ✅ Phase 1 — GitHub Actions CI/CD pipeline with self-healing
 - [x] ✅ Phase 2 — Prometheus and Grafana observability stack
-- [x] ✅ Phase 3 — Deployed to AWS EC2 — Live at `13.220.176.117`
-- [x] ✅ Phase 4 — Slack alerts on every pipeline run
-
+- [x] ✅ Phase 3 — Deployed to AWS EC2 — Live at `13.51.238.154`
+- [x] ✅ Phase 4 — Slack alerts for all pipeline states + recovery notifications
+- [ ] 🔲 Phase 5 — Trivy Docker image security scanning
+- [ ] 🔲 Phase 6 — Staging and production environments with approval gate
 
 ---
 
 ## 🧰 Tech Stack
 
-| Category | Technology | Purpose |
-|---|---|---|
-| Language | Python 3.12 | Application development |
-| Web Framework | Flask 3.0.3 | REST API endpoints |
-| WSGI Server | Gunicorn 22.0.0 | Production HTTP server |
-| Containerization | Docker multi-stage | Portable, secure packaging |
-| CI/CD | GitHub Actions | 4-job automated pipeline |
-| Registry | GHCR | Docker image hosting with 3 tags |
-| Testing | pytest + flake8 | Unit tests + linting |
-| Metrics | prometheus-client | Expose app metrics at /metrics |
-| Monitoring | Prometheus | Scrape + store time-series data |
-| Visualization | Grafana | Live dashboards |
-| Container Stats | cAdvisor | CPU, memory, network metrics |
-| Self-Healing | Bash + curl | Health validation + auto-restart |
-| Alerting | Slack Webhooks | Real-time pipeline notifications |
-| Cloud | AWS EC2 | Live deployment |
-| Orchestration | Docker Compose | Multi-container local stack |
+| Category | Technologies |
+|---|---|
+| Application | Python 3.12 · Flask 3.0.3 · Gunicorn |
+| Containerization | Docker (multi-stage) · Docker Compose |
+| CI/CD | GitHub Actions · GHCR |
+| Testing | pytest · flake8 · pytest-cov |
+| Monitoring | Prometheus · Grafana · cAdvisor · prometheus-client |
+| Notifications | Slack Incoming Webhooks |
+| Cloud | AWS EC2 |
+| Scripting | Bash · curl |
+| Version Control | Git · GitHub |
+
+---
 
 ## 👨‍💻 Author
 
 **Aman Gupta** — Aspiring DevOps / Cloud Engineer
+
+
+
 
 ⭐ **If this project helped you, give it a star!** ⭐
 
