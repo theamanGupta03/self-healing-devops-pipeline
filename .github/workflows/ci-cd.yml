@@ -145,8 +145,6 @@ jobs:
     needs: [test, build, health-check]
     if: always()
     steps:
-
-      # ✅ Full Pipeline Success
       - name: Notify Success
         if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'success' }}
         run: |
@@ -165,8 +163,6 @@ jobs:
               ]
             }]
           }'
-
-      # ❌ Tests / Lint Failed
       - name: Notify Test Failure
         if: ${{ needs.test.result == 'failure' }}
         run: |
@@ -186,8 +182,6 @@ jobs:
               ]
             }]
           }'
-
-      # 🐳 Docker Build / Push Failed
       - name: Notify Build Failure
         if: ${{ needs.test.result == 'success' && needs.build.result == 'failure' }}
         run: |
@@ -207,8 +201,6 @@ jobs:
               ]
             }]
           }'
-
-      # 🚨 Self-Healing Failed — needs manual fix
       - name: Notify Self-Healing Failure
         if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'failure' }}
         run: |
