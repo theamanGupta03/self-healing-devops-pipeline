@@ -1,5 +1,5 @@
 
-# Self-healing Devops Pipleine.
+# Self-Healing Devops Pipleine.
 
 A **production-grade DevOps system** that containerizes a Python Flask app, automates the entire CI/CD lifecycle, validates deployments with a deep health check, self-heals on failure, and provides real-time observability — all triggered by a single `git push`.
 
@@ -267,6 +267,7 @@ The pipeline injects the exact commit hash as `APP_VERSION` at runtime. Every ru
 | Monitoring | Prometheus · Grafana · cAdvisor · prometheus-client |
 | Scripting | Bash · curl |
 | Version Control | Git · GitHub |
+| Cloud | AWS EC2
 
 ---
 
