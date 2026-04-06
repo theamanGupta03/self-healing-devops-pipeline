@@ -22,13 +22,12 @@ Most pipelines just build and deploy. When something breaks in production:
 
 | Problem | What This Project Does |
 |---|---|
-| Manual deployments are error-prone | Fully automated 3-job GitHub Actions pipeline |
-| Works on my machine syndrome | Multi-stage Docker build with pinned dependencies |
-| No validation after deployment | Deep health check validates every endpoint and JSON response |
-| Failures need manual recovery | Container auto-restarts and re-validates without human input |
-| No visibility into production | Prometheus + Grafana live metrics — request rate, latency, uptime, CPU |
-
----
+| Manual deployments are error-prone | Fully automated 4-job GitHub Actions pipeline |
+| "Works on my machine" syndrome | Multi-stage Docker build with pinned dependencies |
+| No validation after deployment | Deep health check — validates HTTP status + JSON on every endpoint |
+| Failures need manual recovery | Self-healing — container auto-restarts and re-validates automatically |
+| No visibility into production | Prometheus + Grafana — request rate, latency, uptime, CPU live |
+| Nobody knows when pipeline fails | Slack alerts — commit, branch, run link sent instantly |
 
 ## ⚙️ How The Pipeline Works
 
