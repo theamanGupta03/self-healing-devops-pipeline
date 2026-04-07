@@ -139,19 +139,86 @@ jobs:
           docker stop self-healing-app || true
           docker rm self-healing-app || true
 
-  notify:
-    name: 📣 Slack Notification
+  deploy:
+    name: 🚀 Deploy to EC2
     runs-on: ubuntu-latest
-    needs: [test, build, health-check]
-    if: always()
+    needs: health-check
+    if: github.ref == 'refs/heads/main'
     steps:
-      - name: Notify Success
-        if: ${{ needs.test.result == 'success' && needs.build.result == 'success' && needs.health-check.result == 'success' }}
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 400 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Save current image as last good
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
+          "echo 'sha-$(echo ${{ github.sha }} | cut -c1-7)' > ~/last_good_image.txt"
+
+      - name: Deploy new image to EC2
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'SSHEOF'
+            cd ~/self-healing-devops-pipeline
+            git pull origin main
+            docker-compose pull
+            docker-compose up -d
+            echo "✅ Deployed successfully!"
+          SSHEOF
+
+      - name: Verify deployment on EC2
+        run: |
+          sleep 10
+          HEALTH=$(curl -sf http://${{ secrets.EC2_HOST }}:5000/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'])" 2>/dev/null || echo "FAIL")
+          if [ "$HEALTH" = "UP" ]; then
+            echo "✅ EC2 deployment verified!"
+          else
+            echo "❌ EC2 health check failed — triggering rollback"
+            exit 1
+          fi
+
+      - name: 🔙 Auto Rollback on EC2
+        if: failure()
+        run: |
+          echo "🔙 Deployment failed — rolling back..."
+          LAST_GOOD=$(ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} "cat ~/last_good_image.txt 2>/dev/null || echo 'latest'")
+          echo "Rolling back to: $LAST_GOOD"
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << SSHEOF
+            docker pull ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
+            docker stop self-healing-app || true
+            docker rm self-healing-app || true
+            docker run -d \
+              --name self-healing-app \
+              -p 5000:5000 \
+              --restart unless-stopped \
+              ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
+            echo "✅ Rollback complete!"
+          SSHEOF
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H 'Content-type: application/json' \
+          --data "{
+            \"text\": \"🔙 *Auto Rollback Triggered on EC2*\",
+            \"attachments\": [{
+              \"color\": \"#ff6600\",
+              \"fields\": [
+                {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                {\"title\": \"Branch\", \"value\": \"${{ github.ref_name }}\", \"short\": true},
+                {\"title\": \"Failed Commit\", \"value\": \"${{ github.sha }}\", \"short\": true},
+                {\"title\": \"Triggered by\", \"value\": \"${{ github.actor }}\", \"short\": true},
+                {\"title\": \"Action Taken\", \"value\": \"New deployment failed on EC2. Automatically rolled back to last known good image.\", \"short\": false},
+                {\"title\": \"Run\", \"value\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\", \"short\": false}
+              ]
+            }]
+          }"
+
+      - name: Notify Slack on Successful Deploy
+        if: success()
         run: |
           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
           -H 'Content-type: application/json' \
           --data '{
-            "text": "✅ *Pipeline PASSED*",
+            "text": "🚀 *Deployed to AWS EC2 Successfully!*",
             "attachments": [{
               "color": "#36a64f",
               "fields": [
@@ -159,10 +226,18 @@ jobs:
                 {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
                 {"title": "Commit", "value": "${{ github.sha }}", "short": true},
                 {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
+                {"title": "Live URL", "value": "http://${{ secrets.EC2_HOST }}:5000/health", "short": false},
                 {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
               ]
             }]
           }'
+
+  notify:
+    name: 📣 Slack Notification
+    runs-on: ubuntu-latest
+    needs: [test, build, health-check, deploy]
+    if: always()
+    steps:
       - name: Notify Test Failure
         if: ${{ needs.test.result == 'failure' }}
         run: |
