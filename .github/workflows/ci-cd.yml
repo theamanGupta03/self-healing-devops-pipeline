@@ -149,22 +149,17 @@ jobs:
         run: |
           for i in 1 2 3; do
             echo "Attempt $i..."
-            ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-              cd ~/self-healing-devops-pipeline || exit 1
-              git pull origin main
-              docker-compose down
-              docker-compose pull
-              docker-compose up -d
-            EOF
 
-            if [ $? -eq 0 ]; then
-              echo "✅ Deployment success"
-              break
-            fi
+            ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
+              "cd ~/self-healing-devops-pipeline && \
+               git pull origin main && \
+               docker-compose down && \
+               docker-compose pull && \
+               docker-compose up -d" && break
 
             echo "❌ Attempt $i failed"
             sleep 5
-          done
+            done
 
       - name: 🩺 Verify deployment
         run: |
