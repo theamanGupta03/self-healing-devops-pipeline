@@ -14,6 +14,7 @@ jobs:
   test:
     name: 🧪 Lint & Test
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,18 +35,15 @@ jobs:
       - name: Test
         run: pytest tests/ -v --cov=app --cov-report=xml
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.xml
-
   build:
     name: 🐳 Build & Push Image
     runs-on: ubuntu-latest
     needs: test
+
     permissions:
       contents: read
       packages: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -73,7 +71,6 @@ jobs:
           context: ./app
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -81,6 +78,7 @@ jobs:
     name: 🩺 Health Check & Self-Healing
     runs-on: ubuntu-latest
     needs: build
+
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +94,6 @@ jobs:
           docker run -d \
             --name self-healing-app \
             -p 5000:5000 \
-            -e APP_VERSION=${{ github.sha }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Wait for app
@@ -107,27 +104,12 @@ jobs:
               break
             fi
             echo "Attempt $i..."
-            [ $i -eq 15 ] && docker logs self-healing-app && exit 1
+            if [ $i -eq 15 ]; then
+              docker logs self-healing-app
+              exit 1
+            fi
             sleep 3
           done
-
-      - name: Health check
-        id: healthcheck
-        run: |
-          chmod +x scripts/health_check.sh
-          ./scripts/health_check.sh
-
-      - name: 🔄 Self-Healing
-        if: failure() && steps.healthcheck.conclusion == 'failure'
-        run: |
-          echo "🔄 Restarting container..."
-          docker restart self-healing-app
-          sleep 10
-          ./scripts/health_check.sh && echo "✅ Recovered!" || exit 1
-
-      - name: Container logs
-        if: always()
-        run: docker logs self-healing-app || true
 
       - name: Cleanup
         if: always()
@@ -140,6 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: health-check
     if: github.ref == 'refs/heads/main'
+
     steps:
       - name: 🔐 Setup SSH
         run: |
@@ -150,42 +133,47 @@ jobs:
 
       - name: 🧪 Test SSH
         run: |
-          ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
-            "echo 'SSH OK'"
+          ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} "echo SSH OK"
 
       - name: 💾 Save last running image
         run: |
-          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'SSHEOF'
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
             if docker ps --format '{{.Image}}' | grep self-healing-app > /dev/null; then
-              docker ps --format '{{.Image}}' | grep self-healing-app | head -n1 \
-                | awk -F ':' '{print $2}' > ~/last_good_image.txt
+              docker ps --format '{{.Image}}' | grep self-healing-app | head -n1 | awk -F ':' '{print $2}' > ~/last_good_image.txt
             else
               echo "latest" > ~/last_good_image.txt
             fi
-          SSHEOF
+          EOF
 
       - name: 🚀 Deploy with retry
         run: |
           for i in 1 2 3; do
             echo "Attempt $i..."
-            ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'SSHEOF' && break
+            ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
               cd ~/self-healing-devops-pipeline || exit 1
               git pull origin main
               docker-compose down
               docker-compose pull
               docker-compose up -d
-            SSHEOF
+            EOF
+
+            if [ $? -eq 0 ]; then
+              echo "✅ Deployment success"
+              break
+            fi
+
+            echo "❌ Attempt $i failed"
             sleep 5
           done
 
       - name: 🩺 Verify deployment
         run: |
           for i in $(seq 1 5); do
-            STATUS=$(curl -sf http://${{ secrets.EC2_HOST }}:5000/health \
-              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','FAIL'))" \
-              2>/dev/null || echo "FAIL")
+            STATUS=$(curl -sf http://${{ secrets.EC2_HOST }}:5000/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','FAIL'))" 2>/dev/null || echo "FAIL")
             echo "Check $i: $STATUS"
-            [ "$STATUS" = "UP" ] && exit 0
+            if [ "$STATUS" = "UP" ]; then
+              exit 0
+            fi
             sleep 5
           done
           exit 1
@@ -193,94 +181,24 @@ jobs:
       - name: 🔙 Rollback
         if: failure()
         run: |
-          LAST_GOOD=$(ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
-            "cat ~/last_good_image.txt 2>/dev/null || echo latest")
-          echo "Rolling back to: $LAST_GOOD"
-          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << SSHEOF
-            docker pull ghcr.io/theamangupta03/self-healing-app:${LAST_GOOD}
+          LAST_GOOD=$(ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} "cat ~/last_good_image.txt 2>/dev/null || echo latest")
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << EOF
+            docker pull ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
             docker stop self-healing-app || true
             docker rm self-healing-app || true
-            docker run -d \
-              --name self-healing-app \
-              -p 5000:5000 \
-              --restart unless-stopped \
-              ghcr.io/theamangupta03/self-healing-app:${LAST_GOOD}
-            echo "✅ Rollback complete to ${LAST_GOOD}"
-          SSHEOF
-
-      - name: 📣 Notify Slack — Rollback
-        if: failure()
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-          -H 'Content-type: application/json' \
-          --data '{
-            "text": "🔙 *Auto Rollback Triggered on EC2*",
-            "attachments": [{
-              "color": "#ff6600",
-              "fields": [
-                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
-                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
-                {"title": "Failed Commit", "value": "${{ github.sha }}", "short": true},
-                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
-                {"title": "Action", "value": "Deployment failed. Rolled back to last good image.", "short": false},
-                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
-              ]
-            }]
-          }'
-
-      - name: 📣 Notify Slack — Success
-        if: success()
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-          -H 'Content-type: application/json' \
-          --data '{
-            "text": "🚀 *Deployed to AWS EC2 Successfully!*",
-            "attachments": [{
-              "color": "#36a64f",
-              "fields": [
-                {"title": "Repository", "value": "${{ github.repository }}", "short": true},
-                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
-                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
-                {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
-                {"title": "Live URL", "value": "http://${{ secrets.EC2_HOST }}:5000/health", "short": false},
-                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
-              ]
-            }]
-          }'
+            docker run -d -p 5000:5000 --name self-healing-app ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
+          EOF
 
   notify:
     name: 📣 Slack Notification
     runs-on: ubuntu-latest
     needs: [test, build, health-check, deploy]
     if: always()
-    steps:
-      - name: Notify Test Failure
-        if: ${{ needs.test.result == 'failure' }}
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-          -H 'Content-type: application/json' \
-          --data '{
-            "text": "❌ *Tests Failed — Pipeline Stopped*",
-            "attachments": [{
-              "color": "#ff0000",
-              "fields": [
-                {"title": "Failed Job", "value": "🧪 Lint & Test", "short": true},
-                {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
-                {"title": "Commit", "value": "${{ github.sha }}", "short": true},
-                {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
-              ]
-            }]
-          }'
 
-      - name: Notify Build Failure
-        if: ${{ needs.test.result == 'success' && needs.build.result == 'failure' }}
+    steps:
+      - name: Notify Failure
+        if: failure()
         run: |
           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-          -H 'Content-type: application/json' \
-          --data '{
-            "text": "🐳 *Docker Build/Push Failed*",
-            "attachments": [{
-              "color": "#ff6600",
-              "fields": [
-                {"title": "Failed Job", "value": "🐳 Build & Push Image", "short": true},
-                {"title": "Branch", "value": "${{ github.ref_name }}", "short":
+            -H 'Content-type: application/json' \
+            --data '{"text":"🚨 Pipeline Failed!"}'
