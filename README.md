@@ -10,11 +10,11 @@ A **production-grade DevOps system** that containerizes a Python Flask app, auto
 
 | Service | Public URL |
 |---|---|
-| 🐍 Flask App | http://13.51.238.154:5000 |
-| ❤️ Health Check | http://13.51.238.154:5000/health |
-| 📊 Prometheus | http://13.51.238.154:9090 |
-| 📈 Grafana | http://13.51.238.154:3000 |
-| 📦 cAdvisor | http://13.51.238.154:8080 |
+| 🐍 Flask App | http://51.20.43.30:5000 |
+| ❤️ Health Check | http://51.20.43.30:5000/health |
+| 📊 Prometheus | http://51.20.43.30:9090 |
+| 📈 Grafana | http://51.20.43.30:3000 |
+| 📦 cAdvisor | http://51.20.43.30:8080 |
 
 ---
 
