@@ -35,6 +35,7 @@ jobs:
       - name: Test
         run: pytest tests/ -v --cov=app --cov-report=xml
 
+
   build:
     name: 🐳 Build & Push Image
     runs-on: ubuntu-latest
@@ -73,6 +74,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
 
   health-check:
     name: 🩺 Health Check & Self-Healing
@@ -117,6 +119,7 @@ jobs:
           docker stop self-healing-app || true
           docker rm self-healing-app || true
 
+
   deploy:
     name: 🚀 Deploy to EC2
     runs-on: ubuntu-latest
@@ -127,7 +130,7 @@ jobs:
       - name: 🔐 Setup SSH
         run: |
           mkdir -p ~/.ssh
-              echo "${{ secrets.EC2_SSH_KEY }}" | base64 -d > ~/.ssh/ec2_key.pem
+          echo "${{ secrets.EC2_SSH_KEY }}" | base64 -d > ~/.ssh/ec2_key.pem
           chmod 600 ~/.ssh/ec2_key.pem
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
@@ -138,11 +141,11 @@ jobs:
       - name: 💾 Save last running image
         run: |
           ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-            if docker ps --format '{{.Image}}' | grep self-healing-app > /dev/null; then
-              docker ps --format '{{.Image}}' | grep self-healing-app | head -n1 | awk -F ':' '{print $2}' > ~/last_good_image.txt
-            else
-              echo "latest" > ~/last_good_image.txt
-            fi
+          if docker ps --format '{{.Image}}' | grep self-healing-app > /dev/null; then
+            docker ps --format '{{.Image}}' | grep self-healing-app | head -n1 | awk -F ':' '{print $2}' > ~/last_good_image.txt
+          else
+            echo "latest" > ~/last_good_image.txt
+          fi
           EOF
 
       - name: 🚀 Deploy with retry
@@ -151,15 +154,15 @@ jobs:
             echo "Attempt $i..."
 
             ssh -o ConnectTimeout=10 -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
-              "cd ~/self-healing-devops-pipeline && \
-               git pull origin main && \
-               docker-compose down && \
-               docker-compose pull && \
-               docker-compose up -d" && break
+            "cd ~/self-healing-devops-pipeline && \
+             git pull origin main && \
+             docker-compose down && \
+             docker-compose pull && \
+             docker-compose up -d" && break
 
             echo "❌ Attempt $i failed"
             sleep 5
-            done
+          done
 
       - name: 🩺 Verify deployment
         run: |
@@ -178,11 +181,12 @@ jobs:
         run: |
           LAST_GOOD=$(ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} "cat ~/last_good_image.txt 2>/dev/null || echo latest")
           ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << EOF
-            docker pull ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
-            docker stop self-healing-app || true
-            docker rm self-healing-app || true
-            docker run -d -p 5000:5000 --name self-healing-app ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
+          docker pull ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
+          docker stop self-healing-app || true
+          docker rm self-healing-app || true
+          docker run -d -p 5000:5000 --name self-healing-app ghcr.io/theamangupta03/self-healing-app:$LAST_GOOD
           EOF
+
 
   notify:
     name: 📣 Slack Notification
@@ -197,3 +201,10 @@ jobs:
           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
             -H 'Content-type: application/json' \
             --data '{"text":"🚨 Pipeline Failed!"}'
+
+      - name: Notify Success
+        if: success()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H 'Content-type: application/json' \
+            --data '{"text":"✅ Pipeline Successful!"}'
