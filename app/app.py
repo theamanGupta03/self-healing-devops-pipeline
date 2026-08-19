@@ -56,7 +56,12 @@ def record_metrics(response):
 @app.route("/")
 def home():
     logger.info("Home endpoint hit")
-    return "Self-healing CI/CD Devops Pipeline"
+    return jsonify({
+        "app": "Self-Healing DevOps Pipeline",
+        "version": APP_VERSION,
+        "status": "running",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
 
 
 @app.route("/health")
