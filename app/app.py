@@ -56,7 +56,7 @@ def record_metrics(response):
 @app.route("/")
 def home():
     logger.info("Home endpoint hit")
-    return "Hello World!"
+    return "Self-healing CI/CD Devops Pipeline"
 
 
 @app.route("/health")
